@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-05-05
+
+### Fixed
+
+- **`CompositeBackend` route matching with trailing slashes** — paths without trailing slashes (e.g. `/foo`) now correctly match routes registered as `/foo/`, matching shell semantics (`ls /tmp` equals `ls /tmp/`). Previously, LLM agents querying paths without trailing slashes would silently fall through to the default backend, breaking file discovery. Added `_normalize_path()` static method and tightened matching to exact-or-child semantics (`== prefix or startswith(prefix + "/")`) to also prevent false positives (e.g. `/foobar` no longer matches `/foo/`). ([#34](https://github.com/vstorm-co/pydantic-ai-backend/pull/34), by [@pawelkiszczak](https://github.com/pawelkiszczak), closes [#33](https://github.com/vstorm-co/pydantic-ai-backend/issues/33))
+- **`DockerSandbox.execute` output handling** — fixed crash when `exec_run` returns a generator instead of `bytes` by joining the iterator before decoding.
+
 ## [0.2.5] - 2026-04-20
 
 ### Fixed
