@@ -50,24 +50,34 @@ class CompositeBackend:
         # Sort routes by length (longest first) for correct matching
         self._sorted_prefixes = sorted(self._routes.keys(), key=len, reverse=True)
 
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        """Normalize path to consistent format."""
+        if not path.startswith("/"):
+            path = "/" + path
+        if len(path) > 1 and path.endswith("/"):
+            path = path.rstrip("/")
+        return path
+
     def _get_backend(self, path: str) -> BackendProtocol:
         """Get the appropriate backend for a path."""
+        normalized = self._normalize_path(path)
         for prefix in self._sorted_prefixes:
-            if path.startswith(prefix):
+            normalized_prefix = self._normalize_path(prefix)
+            if normalized == normalized_prefix or normalized.startswith(normalized_prefix + "/"):
                 return self._routes[prefix]
         return self._default
 
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files, aggregating from all relevant backends."""
-        # If path matches a specific route, use that backend
-        backend = self._get_backend(path)
+        normalized = self._normalize_path(path)
 
         # For root path, aggregate from all backends
-        if path == "/" or path == "":
+        if normalized == "/":
             all_entries: dict[str, FileInfo] = {}
 
             # First, get entries from default backend
-            for entry in self._default.ls_info(path):
+            for entry in self._default.ls_info(normalized):
                 all_entries[entry["path"]] = entry
 
             # Then, add virtual directories for route prefixes
@@ -87,7 +97,9 @@ class CompositeBackend:
 
             return sorted(all_entries.values(), key=lambda x: (not x["is_dir"], x["name"]))
 
-        return backend.ls_info(path)
+        # Route to appropriate backend
+        backend = self._get_backend(normalized)
+        return backend.ls_info(normalized)
 
     def _read_bytes(self, path: str) -> bytes:
         """Read bytes from the appropriate backend."""

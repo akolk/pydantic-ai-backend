@@ -587,3 +587,80 @@ class TestCompositeBackendExtended:
         names = [e["name"] for e in entries]
         # special should appear only once
         assert names.count("special") == 1
+
+    def test_ls_info_without_trailing_slash(self):
+        """Test ls_info without trailing slash matches route with trailing slash."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        routed.write("/foo/bar.txt", "baz")
+
+        composite = CompositeBackend(default=default, routes={"/foo/": routed})
+
+        entries = composite.ls_info("/foo")
+        names = [e["name"] for e in entries]
+        assert "bar.txt" in names
+
+    def test_ls_info_with_trailing_slash(self):
+        """Test ls_info with trailing slash still works (regression guard)."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        routed.write("/foo/bar.txt", "baz")
+
+        composite = CompositeBackend(default=default, routes={"/foo/": routed})
+
+        entries = composite.ls_info("/foo/")
+        names = [e["name"] for e in entries]
+        assert "bar.txt" in names
+
+    def test_read_without_trailing_slash(self):
+        """Test reading a file via path without trailing slash on route."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        routed.write("/foo/bar.txt", "hello")
+
+        composite = CompositeBackend(default=default, routes={"/foo/": routed})
+
+        content = composite.read("/foo/bar.txt")
+        assert "hello" in content
+
+    def test_write_without_trailing_slash(self):
+        """Test writing routes correctly when path lacks trailing slash."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        composite = CompositeBackend(default=default, routes={"/foo/": routed})
+
+        composite.write("/foo/test.txt", "written")
+
+        assert "/foo/test.txt" in routed.files
+        assert "/foo/test.txt" not in default.files
+
+    def test_route_without_trailing_slash(self):
+        """Test route registered without trailing slash matches both variants."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        composite = CompositeBackend(default=default, routes={"/foo": routed})
+
+        # Both /foo and /foo/ should route to the same backend
+        composite.write("/foo/file.txt", "content")
+        composite.write("/foo/other.txt", "content2")
+
+        assert "/foo/file.txt" in routed.files
+        assert "/foo/other.txt" in routed.files
+        assert "/foo/file.txt" not in default.files
+
+    def test_no_false_positive_match(self):
+        """Test that /foobar does not match route /foo/."""
+        default = StateBackend()
+        routed = StateBackend()
+
+        composite = CompositeBackend(default=default, routes={"/foo/": routed})
+
+        composite.write("/foobar/test.txt", "default content")
+
+        assert "/foobar/test.txt" not in routed.files
+        assert "/foobar/test.txt" in default.files

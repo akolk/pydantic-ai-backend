@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     )
     from pydantic_ai_backends.backends.docker.runtimes import get_runtime
     from pydantic_ai_backends.backends.docker.session import SandboxFactory
+    from pydantic_ai_backends.capability import ConsoleCapability
     from pydantic_ai_backends.hashline import (
         apply_hashline_edit,
         apply_hashline_edit_with_summary,

@@ -317,6 +317,8 @@ class DockerSandbox(BaseSandbox):  # pragma: no cover
                 workdir=self._work_dir,
             )
 
+            if not isinstance(output, bytes):
+                output = b"".join(output)
             output_str = output.decode("utf-8", errors="replace")
 
             # Truncate if too long
