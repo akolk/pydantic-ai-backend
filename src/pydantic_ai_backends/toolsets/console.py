@@ -705,7 +705,10 @@ for long-running builds or test suites.
                 return "Error: Shell execution is disabled for this backend"
 
             try:
-                result = await asyncio.to_thread(backend.execute, command, timeout)  # pyright: ignore[reportAttributeAccessIssue]
+                if hasattr(backend, "async_execute"):
+                    result = await backend.async_execute(command, timeout)  # pyright: ignore[reportAttributeAccessIssue]
+                else:
+                    result = await asyncio.to_thread(backend.execute, command, timeout)  # pyright: ignore[reportAttributeAccessIssue]
             except RuntimeError as e:
                 return f"Error: {e}"
 

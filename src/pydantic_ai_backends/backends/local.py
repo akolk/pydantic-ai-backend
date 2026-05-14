@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -30,6 +35,8 @@ AskCallback = Callable[["PermissionOperation", str, str], Awaitable[bool]]
 
 # Fallback behavior when ask_callback is not provided
 AskFallback = Literal["deny", "error"]
+
+MAX_EXECUTE_OUTPUT = 100_000
 
 
 class LocalBackend:
@@ -123,6 +130,10 @@ class LocalBackend:
         # If no allowed_directories specified, restrict to root_dir only
         if self._allowed_directories is None:
             self._allowed_directories = [self._root]
+
+    @staticmethod
+    def _shell_cmd(command: str) -> list[str]:
+        return ["cmd", "/c", command] if sys.platform == "win32" else ["sh", "-c", command]
 
     @property
     def id(self) -> str:
@@ -584,20 +595,19 @@ class LocalBackend:
 
         try:
             result = subprocess.run(
-                ["sh", "-c", command],
+                self._shell_cmd(command),
                 cwd=self._root,
                 capture_output=True,
                 text=True,
-                timeout=timeout or 120,
+                timeout=timeout if timeout is not None else 120,
             )
 
             output = result.stdout + result.stderr
 
             # Truncate if too long
-            max_output = 100000
-            truncated = len(output) > max_output
+            truncated = len(output) > MAX_EXECUTE_OUTPUT
             if truncated:  # pragma: no cover
-                output = output[:max_output]
+                output = output[:MAX_EXECUTE_OUTPUT]
 
             return ExecuteResponse(
                 output=output,
@@ -616,3 +626,85 @@ class LocalBackend:
                 exit_code=1,
                 truncated=False,
             )
+
+    async def async_execute(self, command: str, timeout: int | None = None) -> ExecuteResponse:
+        """Async, cancellable version of execute().
+
+        Uses ``asyncio.create_subprocess_exec`` so that cancelling the calling
+        task immediately kills the subprocess rather than waiting for a thread
+        to finish. On Unix, the subprocess runs in its own session so the entire
+        process tree (including any grandchildren the shell forked) is reaped
+        on cancellation or timeout. Defaults to a 120-second timeout when
+        ``timeout`` is ``None``.
+        """
+        if not self._enable_execute:
+            raise RuntimeError(
+                "Shell execution is disabled for this backend. "
+                "Initialize with enable_execute=True to enable."
+            )
+
+        perm_error = self._check_permission_sync("execute", command)
+        if perm_error:
+            return ExecuteResponse(output=f"Error: {perm_error}", exit_code=1, truncated=False)
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *self._shell_cmd(command),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=self._root,
+                # New session so we can kill the entire process group on Unix.
+                # Windows kills the process tree via the cmd /c lifecycle.
+                start_new_session=(sys.platform != "win32"),
+            )
+
+            try:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout if timeout is not None else 120
+                )
+            except asyncio.CancelledError:
+                self._kill_proc_tree(proc)
+                # Shield cleanup so a second cancel can't leave pipes dangling.
+                with contextlib.suppress(BaseException):
+                    await asyncio.shield(asyncio.ensure_future(proc.communicate()))
+                raise
+            except asyncio.TimeoutError:
+                self._kill_proc_tree(proc)
+                with contextlib.suppress(BaseException):
+                    await proc.communicate()
+                return ExecuteResponse(
+                    output="Error: Command timed out",
+                    exit_code=124,
+                    truncated=False,
+                )
+
+            output = stdout_b.decode("utf-8", errors="replace") + stderr_b.decode(
+                "utf-8", errors="replace"
+            )
+
+            truncated = len(output) > MAX_EXECUTE_OUTPUT
+            if truncated:  # pragma: no cover
+                output = output[:MAX_EXECUTE_OUTPUT]
+
+            return ExecuteResponse(
+                output=output,
+                exit_code=proc.returncode if proc.returncode is not None else 1,
+                truncated=truncated,
+            )
+        except Exception as e:  # pragma: no cover
+            return ExecuteResponse(output=f"Error: {e}", exit_code=1, truncated=False)
+
+    @staticmethod
+    def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
+        """Kill the subprocess and (on Unix) every grandchild it forked.
+
+        On Unix the process is launched with ``start_new_session=True``, so we
+        can ``killpg`` the whole tree. On Windows ``proc.kill()`` is sufficient
+        because ``cmd /c`` already terminates child processes when it dies.
+        """
+        if sys.platform == "win32":
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)

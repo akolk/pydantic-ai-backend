@@ -1,5 +1,6 @@
 """Tests for LocalBackend."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -282,6 +283,150 @@ class TestLocalBackendExecute:
         result = backend.execute("pwd")
         assert result.exit_code == 0
         assert str(tmp_path) in result.output
+
+
+class TestLocalBackendAsyncExecute:
+    """Test LocalBackend async shell execution."""
+
+    async def test_async_execute_basic(self, tmp_path: Path):
+        """Test basic async command execution."""
+        backend = LocalBackend(root_dir=tmp_path)
+
+        result = await backend.async_execute("echo 'hello'")
+        assert result.exit_code == 0
+        assert "hello" in result.output
+
+    async def test_async_execute_disabled_raises(self, tmp_path: Path):
+        """Test that async_execute raises RuntimeError when disabled."""
+        backend = LocalBackend(root_dir=tmp_path, enable_execute=False)
+
+        with pytest.raises(RuntimeError, match="disabled"):
+            await backend.async_execute("echo 'hello'")
+
+    async def test_async_execute_permission_denied(self, tmp_path: Path):
+        """Test async execute returns error when permission denies."""
+        from pydantic_ai_backends.permissions import OperationPermissions, PermissionRuleset
+
+        ruleset = PermissionRuleset(execute=OperationPermissions(default="deny"))
+        backend = LocalBackend(root_dir=tmp_path, permissions=ruleset)
+
+        result = await backend.async_execute("echo hello")
+
+        assert result.exit_code == 1
+        assert "Error" in result.output
+        assert "Permission denied" in result.output
+
+    async def test_async_execute_timeout_exceeded(self, tmp_path: Path):
+        """Test async command execution timeout returns timed-out response."""
+        backend = LocalBackend(root_dir=tmp_path)
+
+        result = await backend.async_execute("sleep 10", timeout=1)
+        assert result.exit_code == 124
+        assert "timed out" in result.output
+
+    async def test_async_execute_cancelled(self, tmp_path: Path):
+        """Test that CancelledError propagates from async_execute."""
+        backend = LocalBackend(root_dir=tmp_path)
+
+        task = asyncio.create_task(backend.async_execute("sleep 60"))
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    async def test_async_execute_cancel_kills_grandchildren(self, tmp_path: Path):
+        """On Unix, cancelling must reap the entire process group, not just the shell."""
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("Process-group semantics are Unix-specific")
+
+        import os
+
+        backend = LocalBackend(root_dir=tmp_path)
+
+        # Write the grandchild's PID to a file before sleeping so we can verify
+        # the kill reaches it. The shell ($$) is the parent; we want the actual
+        # sleep grandchild.
+        pid_file = tmp_path / "pid"
+        cmd = f'(sleep 60 & echo $! > "{pid_file}"; wait)'
+
+        task = asyncio.create_task(backend.async_execute(cmd))
+
+        # Wait for the pid file to appear (grandchild has been spawned).
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if pid_file.exists() and pid_file.read_text().strip():
+                break
+        else:
+            task.cancel()
+            pytest.fail("grandchild never wrote pid file")
+
+        grandchild_pid = int(pid_file.read_text().strip())
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Give the OS a moment to deliver SIGKILL.
+        await asyncio.sleep(0.1)
+        # os.kill(pid, 0) raises ProcessLookupError if the process is gone.
+        with pytest.raises(ProcessLookupError):
+            os.kill(grandchild_pid, 0)
+
+
+class TestKillProcTree:
+    """Test _kill_proc_tree platform branches."""
+
+    def test_kill_proc_tree_windows_calls_proc_kill(self, monkeypatch: pytest.MonkeyPatch):
+        """On Windows, _kill_proc_tree delegates to proc.kill() directly."""
+        from unittest.mock import MagicMock
+
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        proc = MagicMock()
+        LocalBackend._kill_proc_tree(proc)
+        proc.kill.assert_called_once_with()
+
+    def test_kill_proc_tree_windows_swallows_process_lookup_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """ProcessLookupError from a race with a process that already exited is suppressed."""
+        from unittest.mock import MagicMock
+
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        proc = MagicMock()
+        proc.kill.side_effect = ProcessLookupError
+        # Must not raise.
+        LocalBackend._kill_proc_tree(proc)
+
+
+class TestShellCmd:
+    """Test _shell_cmd platform selection."""
+
+    def test_shell_cmd_unix(self, monkeypatch: pytest.MonkeyPatch):
+        """On non-Windows platforms, returns sh -c."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "linux")
+        assert LocalBackend._shell_cmd("ls -la") == ["sh", "-c", "ls -la"]
+
+    def test_shell_cmd_windows(self, monkeypatch: pytest.MonkeyPatch):
+        """On Windows, returns cmd /c."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        assert LocalBackend._shell_cmd("dir") == ["cmd", "/c", "dir"]
+
+    def test_shell_cmd_darwin(self, monkeypatch: pytest.MonkeyPatch):
+        """On macOS, returns sh -c (non-Windows branch)."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "darwin")
+        assert LocalBackend._shell_cmd("echo hi") == ["sh", "-c", "echo hi"]
 
 
 class TestLocalBackendPathResolution:
