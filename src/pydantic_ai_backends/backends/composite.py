@@ -79,6 +79,10 @@ class CompositeBackend:
                 return self._routes[prefix]
         return self._default
 
+    def exists(self, path: str) -> bool:
+        """Check existence via the route handling this path."""
+        return self._get_backend(path).exists(path)
+
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files, aggregating from all relevant backends."""
         normalized = self._normalize_path(path)

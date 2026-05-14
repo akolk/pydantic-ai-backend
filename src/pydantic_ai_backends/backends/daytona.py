@@ -134,6 +134,19 @@ class DaytonaSandbox(BaseSandbox):  # pragma: no cover
     # File I/O — native Daytona APIs
     # ------------------------------------------------------------------
 
+    def exists(self, path: str) -> bool:
+        """Check existence via Daytona's native file API.
+
+        Falls back to ``False`` for any error (missing file, permission
+        denied, transient API failure) — mirroring the broad exception
+        handling in :meth:`_read_bytes`.
+        """
+        try:
+            info = self._sandbox.fs.get_file_info(path)
+        except Exception:
+            return False
+        return not bool(getattr(info, "is_dir", False))
+
     def _read_bytes(self, path: str) -> bytes:
         """Download file bytes via Daytona's native file API."""
         from daytona import FileDownloadRequest

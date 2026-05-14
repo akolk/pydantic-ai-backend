@@ -220,6 +220,21 @@ class LocalBackend:
             f"Access denied: '{path}' is outside allowed directories ({allowed_str})"
         )
 
+    def exists(self, path: str) -> bool:
+        """Check whether a file exists on the filesystem.
+
+        ``_validate_path`` raises ``PermissionError`` when the resolved path
+        escapes the allowed directory set; that is the only documented
+        failure mode for path resolution and maps to ``False`` per the
+        protocol contract ("invalid paths, directories, and permission
+        errors all return False").
+        """
+        try:
+            validated = self._validate_path(path)
+        except PermissionError:
+            return False
+        return validated.is_file()
+
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files and directories at the given path."""
         try:

@@ -86,6 +86,12 @@ class StateBackend:
         """Get current ISO 8601 timestamp."""
         return datetime.now(timezone.utc).isoformat()
 
+    def exists(self, path: str) -> bool:
+        """Check whether a file exists in the in-memory store."""
+        if _validate_path(path) is not None:
+            return False
+        return _normalize_path(path) in self._files
+
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files and directories at the given path."""
         error = _validate_path(path)

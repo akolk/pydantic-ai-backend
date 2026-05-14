@@ -144,6 +144,11 @@ class BaseSandbox(ABC):
         """
         ...
 
+    def exists(self, path: str) -> bool:  # pragma: no cover
+        """Check existence via ``test -f`` in the sandbox shell."""
+        result = self.execute(f"test -f {shlex.quote(path)}", timeout=5)
+        return result.exit_code == 0
+
     def ls_info(self, path: str) -> list[FileInfo]:  # pragma: no cover
         """List files using ls command."""
         path = shlex.quote(path)
