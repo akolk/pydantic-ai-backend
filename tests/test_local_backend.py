@@ -335,6 +335,70 @@ class TestLocalBackendAsyncExecute:
         with pytest.raises(asyncio.CancelledError):
             await task
 
+    async def test_async_execute_cancel_kills_grandchildren(self, tmp_path: Path):
+        """On Unix, cancelling must reap the entire process group, not just the shell."""
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("Process-group semantics are Unix-specific")
+
+        import os
+
+        backend = LocalBackend(root_dir=tmp_path)
+
+        # Write the grandchild's PID to a file before sleeping so we can verify
+        # the kill reaches it. The shell ($$) is the parent; we want the actual
+        # sleep grandchild.
+        pid_file = tmp_path / "pid"
+        cmd = f'(sleep 60 & echo $! > "{pid_file}"; wait)'
+
+        task = asyncio.create_task(backend.async_execute(cmd))
+
+        # Wait for the pid file to appear (grandchild has been spawned).
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if pid_file.exists() and pid_file.read_text().strip():
+                break
+        else:
+            task.cancel()
+            pytest.fail("grandchild never wrote pid file")
+
+        grandchild_pid = int(pid_file.read_text().strip())
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Give the OS a moment to deliver SIGKILL.
+        await asyncio.sleep(0.1)
+        # os.kill(pid, 0) raises ProcessLookupError if the process is gone.
+        with pytest.raises(ProcessLookupError):
+            os.kill(grandchild_pid, 0)
+
+
+class TestShellCmd:
+    """Test _shell_cmd platform selection."""
+
+    def test_shell_cmd_unix(self, monkeypatch: pytest.MonkeyPatch):
+        """On non-Windows platforms, returns sh -c."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "linux")
+        assert LocalBackend._shell_cmd("ls -la") == ["sh", "-c", "ls -la"]
+
+    def test_shell_cmd_windows(self, monkeypatch: pytest.MonkeyPatch):
+        """On Windows, returns cmd /c."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        assert LocalBackend._shell_cmd("dir") == ["cmd", "/c", "dir"]
+
+    def test_shell_cmd_darwin(self, monkeypatch: pytest.MonkeyPatch):
+        """On macOS, returns sh -c (non-Windows branch)."""
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "darwin")
+        assert LocalBackend._shell_cmd("echo hi") == ["sh", "-c", "echo hi"]
+
 
 class TestLocalBackendPathResolution:
     """Test LocalBackend path resolution and non-existent file handling."""

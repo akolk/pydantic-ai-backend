@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import uuid
@@ -627,8 +630,12 @@ class LocalBackend:
     async def async_execute(self, command: str, timeout: int | None = None) -> ExecuteResponse:
         """Async, cancellable version of execute().
 
-        Uses asyncio.create_subprocess_exec so that cancelling the calling task
-        immediately kills the subprocess rather than waiting for the thread to finish.
+        Uses ``asyncio.create_subprocess_exec`` so that cancelling the calling
+        task immediately kills the subprocess rather than waiting for a thread
+        to finish. On Unix, the subprocess runs in its own session so the entire
+        process tree (including any grandchildren the shell forked) is reaped
+        on cancellation or timeout. Defaults to a 120-second timeout when
+        ``timeout`` is ``None``.
         """
         if not self._enable_execute:
             raise RuntimeError(
@@ -646,6 +653,9 @@ class LocalBackend:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._root,
+                # New session so we can kill the entire process group on Unix.
+                # Windows kills the process tree via the cmd /c lifecycle.
+                start_new_session=(sys.platform != "win32"),
             )
 
             try:
@@ -653,12 +663,15 @@ class LocalBackend:
                     proc.communicate(), timeout=timeout if timeout is not None else 120
                 )
             except asyncio.CancelledError:
-                proc.kill()
-                await proc.communicate()
+                self._kill_proc_tree(proc)
+                # Shield cleanup so a second cancel can't leave pipes dangling.
+                with contextlib.suppress(BaseException):
+                    await asyncio.shield(asyncio.ensure_future(proc.communicate()))
                 raise
             except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
+                self._kill_proc_tree(proc)
+                with contextlib.suppress(BaseException):
+                    await proc.communicate()
                 return ExecuteResponse(
                     output="Error: Command timed out",
                     exit_code=124,
@@ -680,3 +693,18 @@ class LocalBackend:
             )
         except Exception as e:  # pragma: no cover
             return ExecuteResponse(output=f"Error: {e}", exit_code=1, truncated=False)
+
+    @staticmethod
+    def _kill_proc_tree(proc: asyncio.subprocess.Process) -> None:
+        """Kill the subprocess and (on Unix) every grandchild it forked.
+
+        On Unix the process is launched with ``start_new_session=True``, so we
+        can ``killpg`` the whole tree. On Windows ``proc.kill()`` is sufficient
+        because ``cmd /c`` already terminates child processes when it dies.
+        """
+        if sys.platform == "win32":
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            return
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)

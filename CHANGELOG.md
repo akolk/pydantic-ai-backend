@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-05-14
+
+### Added
+
+- **`LocalBackend.async_execute()` — async, cancellable shell execution** ([#36](https://github.com/vstorm-co/pydantic-ai-backend/pull/36), related to [pydantic-deepagents#93](https://github.com/vstorm-co/pydantic-deepagents/issues/93)) — uses `asyncio.create_subprocess_exec` so that cancelling the calling task immediately kills the subprocess instead of waiting for the thread to finish. The console toolset's `execute` tool now prefers `backend.async_execute(...)` when available and falls back to `asyncio.to_thread(backend.execute, ...)` for backends that don't expose the new method, so third-party backend implementations are unaffected.
+  - On Unix, the subprocess is launched with `start_new_session=True` and cancellation/timeout calls `os.killpg(proc.pid, SIGKILL)` so the entire process tree (including grandchildren the shell forked, e.g. `sh -c "sleep 60"`) is reaped. Windows relies on `cmd /c` lifecycle to terminate child processes.
+  - Cleanup `await proc.communicate()` after `kill()` is wrapped in `asyncio.shield` so a second cancellation can't leave subprocess pipes dangling.
+  - Output is decoded with `errors="replace"` to tolerate non-UTF-8 bytes.
+
+- **Cross-platform shell selection in `LocalBackend`** ([#36](https://github.com/vstorm-co/pydantic-ai-backend/pull/36)) — new static helper `LocalBackend._shell_cmd(command)` returns `["cmd", "/c", command]` on Windows and `["sh", "-c", command]` elsewhere. Both `execute()` and `async_execute()` route through it.
+
+### Fixed
+
+- **`[WinError 2]` crash on Windows when calling `LocalBackend.execute()`** ([#36](https://github.com/vstorm-co/pydantic-ai-backend/pull/36)) — the execute path hardcoded `["sh", "-c", command]`, which is not available on Windows. Now routes through `_shell_cmd()` and uses `cmd /c` on `win32`.
+
+- **Agent task cancellation didn't reach the running subprocess** ([#36](https://github.com/vstorm-co/pydantic-ai-backend/pull/36)) — previously, `execute()` ran on a worker thread via `asyncio.to_thread`, so cancelling the calling task only marked the future as cancelled while the subprocess kept running until completion or timeout. With `async_execute()`, cancellation propagates through to `proc.kill()` (or `killpg` on Unix) immediately.
+
+- **`timeout=0` was silently rewritten to 120 seconds** ([#36](https://github.com/vstorm-co/pydantic-ai-backend/pull/36)) — `execute()` used `timeout or 120`, which treated `0` as falsy and substituted the default. Now uses an explicit `None` check so `0` is honoured (will trigger immediate timeout).
+
+### Changed
+
+- **Extracted `MAX_EXECUTE_OUTPUT = 100_000`** constant in `local.py`, shared by both `execute()` and `async_execute()` truncation paths.
+
 ## [0.2.6] - 2026-05-05
 
 ### Fixed
