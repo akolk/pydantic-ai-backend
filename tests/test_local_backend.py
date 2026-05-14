@@ -375,6 +375,35 @@ class TestLocalBackendAsyncExecute:
             os.kill(grandchild_pid, 0)
 
 
+class TestKillProcTree:
+    """Test _kill_proc_tree platform branches."""
+
+    def test_kill_proc_tree_windows_calls_proc_kill(self, monkeypatch: pytest.MonkeyPatch):
+        """On Windows, _kill_proc_tree delegates to proc.kill() directly."""
+        from unittest.mock import MagicMock
+
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        proc = MagicMock()
+        LocalBackend._kill_proc_tree(proc)
+        proc.kill.assert_called_once_with()
+
+    def test_kill_proc_tree_windows_swallows_process_lookup_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """ProcessLookupError from a race with a process that already exited is suppressed."""
+        from unittest.mock import MagicMock
+
+        import pydantic_ai_backends.backends.local as local_mod
+
+        monkeypatch.setattr(local_mod.sys, "platform", "win32")
+        proc = MagicMock()
+        proc.kill.side_effect = ProcessLookupError
+        # Must not raise.
+        LocalBackend._kill_proc_tree(proc)
+
+
 class TestShellCmd:
     """Test _shell_cmd platform selection."""
 
