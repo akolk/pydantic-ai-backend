@@ -456,14 +456,14 @@ class TestLocalBackendPathResolution:
         assert "Error" in content
         assert "not found" in content
 
-    def testread_bytes_nonexistent(self, tmp_path: Path):
+    def test_read_bytes_nonexistent(self, tmp_path: Path):
         """read_bytes returns empty bytes for a non-existent file."""
         backend = LocalBackend(root_dir=tmp_path)
 
         result = backend.read_bytes("no_such_file.bin")
         assert result == b""
 
-    def testread_bytes_nonexistent_absolute(self, tmp_path: Path):
+    def test_read_bytes_nonexistent_absolute(self, tmp_path: Path):
         """read_bytes returns empty bytes for a non-existent absolute path."""
         backend = LocalBackend(root_dir=tmp_path)
 

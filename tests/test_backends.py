@@ -166,7 +166,7 @@ class TestStateBackend:
         content = backend.read("/binary.txt")
         assert "Hello, bytes!" in content
 
-    def testread_bytes(self):
+    def test_read_bytes(self):
         """Test reading raw bytes from files.
 
         Note: StateBackend stores content as text lines, so binary data
@@ -316,7 +316,7 @@ class TestLocalBackend:
         results = backend.glob_info("**/*.py")
         assert len(results) == 2
 
-    def testread_bytes(self, tmp_path):
+    def test_read_bytes(self, tmp_path):
         """Test reading raw bytes from files."""
         backend = LocalBackend(root_dir=tmp_path)
 
@@ -464,6 +464,13 @@ class TestLocalBackend:
         (tmp_path / "subdir").mkdir()
         assert backend.exists("subdir") is False
 
+    def test_exists_returns_false_for_null_byte_path(self, tmp_path):
+        """POSIX rejects paths with embedded NUL bytes — Path.is_file() raises
+        ValueError before stat'ing. The protocol contract is "invalid paths
+        return False", so this must not propagate."""
+        backend = LocalBackend(root_dir=tmp_path)
+        assert backend.exists("foo\x00bar.txt") is False
+
 
 class TestCompositeBackend:
     """Tests for CompositeBackend."""
@@ -507,7 +514,7 @@ class TestCompositeBackend:
         assert "file1.txt" in names
         assert "special" in names  # Virtual directory for route
 
-    def testread_bytes(self):
+    def test_read_bytes(self):
         """Test reading raw bytes through composite backend.
 
         Note: Using StateBackend instances which store text, so binary

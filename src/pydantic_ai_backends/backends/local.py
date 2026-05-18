@@ -223,17 +223,28 @@ class LocalBackend:
     def exists(self, path: str) -> bool:
         """Check whether a file exists on the filesystem.
 
-        ``_validate_path`` raises ``PermissionError`` when the resolved path
-        escapes the allowed directory set; that is the only documented
-        failure mode for path resolution and maps to ``False`` per the
-        protocol contract ("invalid paths, directories, and permission
-        errors all return False").
+        Returns ``False`` for: missing files, directories, paths outside
+        the allowed directory set, and any other invalid path the
+        filesystem refuses to stat. The protocol contract is "invalid
+        paths, directories, and permission errors all return False" —
+        callers needing to distinguish those reasons should use
+        ``ls_info()``.
+
+        Exception sources:
+        - ``PermissionError`` from ``_validate_path`` when the resolved
+          path escapes the allowed directory set.
+        - ``ValueError`` from ``Path.is_file()`` on paths the OS rejects
+          before it can stat them (notably embedded null bytes — POSIX
+          rejects them at the syscall boundary).
+        - ``OSError`` covers the remaining edge cases (filename too long,
+          ELOOP on a symlink cycle, etc.). ``Path.is_file()`` swallows
+          most of these already; the explicit catch is belt-and-braces.
         """
         try:
             validated = self._validate_path(path)
-        except PermissionError:
+            return validated.is_file()
+        except (PermissionError, ValueError, OSError):
             return False
-        return validated.is_file()
 
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files and directories at the given path."""
