@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-05-24
+
+### Infrastructure
+
+- **CI: bump `astral-sh/setup-uv` to `v8.1.0`** across `ci.yml` (×3) and `publish.yml` — pulled in from Renovate's [Dependency Dashboard #41](https://github.com/vstorm-co/pydantic-ai-backend/issues/41) (rate-limited there). Pinned to the specific patch because `astral-sh/setup-uv` does not maintain a rolling `v8` tag — only `v8.0.0` / `v8.1.0` exist (`v7` and earlier do have rolling majors).
+- **CI: bump `actions/setup-python` to `v6`** in `docs.yml` — same source as above; `v6` has a rolling tag so plain `@v6` is used.
+
+No source-code changes — pure CI / dependency-bot housekeeping. Library behaviour unchanged from 0.2.8.
+
 ## [0.2.8] - 2026-05-24
 
 ### Added
