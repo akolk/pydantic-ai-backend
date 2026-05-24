@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-05-24
+
+### Added
+
+- **`BackendProtocol.exists(path) -> bool` predicate** ([#37](https://github.com/vstorm-co/pydantic-ai-backend/pull/37)) — first-class way to check file presence without sniffing private state (e.g. `StateBackend._files`) or pattern-matching empty-byte returns from `read_bytes()`. Contract: returns `True` only for paths that exist *as regular files*; directories, missing paths, permission errors, and OS-rejected paths (e.g. embedded null bytes) all return `False`. Implementations across every backend:
+  - `StateBackend` — dict membership after `_validate_path` / `_normalize_path`.
+  - `LocalBackend` — `Path.is_file()` after `_validate_path`; catches `PermissionError`, `ValueError` (POSIX rejects embedded null bytes at the syscall boundary), and residual `OSError` (ELOOP, name too long, ...) to honour the "False for invalid paths" promise.
+  - `CompositeBackend` — one-line delegation to `_get_backend(path).exists(path)`.
+  - `BaseSandbox` (Docker inherits via default) — `test -f <quoted-path>` over the sandbox shell with a 5 s ceiling.
+  - `DaytonaSandbox` — native `self._sandbox.fs.get_file_info(path)`; broad `except Exception` matches the file's existing pattern (mirrors `read_bytes`/`write`); returns `False` on any failure or when `is_dir` is true.
+
+### Changed
+
+- **⚠️ Renamed `_read_bytes` → `read_bytes`** ([#37](https://github.com/vstorm-co/pydantic-ai-backend/pull/37)) — promotes bytes-reading from private (leading underscore) to public on `BackendProtocol`. The semantics are unchanged (empty bytes for missing/erroring reads — `exists()` is now the way to distinguish a real empty file from a missing one), but the rename is **breaking for any caller that was reaching for the private `_read_bytes` name directly** (e.g. earlier versions of the console toolset's `read` / `hashline_edit` tools, which are updated in the same release).
+- **Console toolset's `execute` tool now prefers `backend.async_execute(...)` when available** ([#37](https://github.com/vstorm-co/pydantic-ai-backend/pull/37)) — wires up the async-cancellable execution path added in 0.2.7. Backends that don't expose `async_execute` continue to use the existing `asyncio.to_thread(backend.execute, ...)` fallback, so third-party implementations are unaffected.
+- **`hashline_edit` is now serialized per `(backend, path)`** ([#37](https://github.com/vstorm-co/pydantic-ai-backend/pull/37)) — concurrent edits to the same file no longer race read-modify-write. Uses a module-level `weakref.WeakKeyDictionary[backend, dict[path, asyncio.Lock]]` so locks are garbage-collected with the backend.
+
+### Infrastructure
+
+- **`renovate.json`** ([#38](https://github.com/vstorm-co/pydantic-ai-backend/pull/38)) — Renovate config landed (first auto-PRs already produced #39/#40).
+- **CI: bump `actions/checkout` to `v6`** ([#40](https://github.com/vstorm-co/pydantic-ai-backend/pull/40), Renovate auto-PR).
+- **CI: bump `docs.yml` Python to `3.14`** ([#39](https://github.com/vstorm-co/pydantic-ai-backend/pull/39), Renovate auto-PR). The `ci.yml` test matrix stays at `["3.10", "3.13"]`.
+
 ## [0.2.7] - 2026-05-14
 
 ### Added
