@@ -457,17 +457,17 @@ class TestLocalBackendPathResolution:
         assert "not found" in content
 
     def test_read_bytes_nonexistent(self, tmp_path: Path):
-        """_read_bytes returns empty bytes for a non-existent file."""
+        """read_bytes returns empty bytes for a non-existent file."""
         backend = LocalBackend(root_dir=tmp_path)
 
-        result = backend._read_bytes("no_such_file.bin")
+        result = backend.read_bytes("no_such_file.bin")
         assert result == b""
 
     def test_read_bytes_nonexistent_absolute(self, tmp_path: Path):
-        """_read_bytes returns empty bytes for a non-existent absolute path."""
+        """read_bytes returns empty bytes for a non-existent absolute path."""
         backend = LocalBackend(root_dir=tmp_path)
 
-        result = backend._read_bytes(str(tmp_path / "no_such_file.bin"))
+        result = backend.read_bytes(str(tmp_path / "no_such_file.bin"))
         assert result == b""
 
     def test_write_and_read_relative_path(self, tmp_path: Path):

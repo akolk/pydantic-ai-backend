@@ -412,9 +412,26 @@ class TestDockerSandboxFilePathResolution:
 
     @pytest.mark.docker
     def test_read_bytes_nonexistent_path(self, docker_sandbox):
-        """_read_bytes on a non-existent path returns empty bytes."""
-        result = docker_sandbox._read_bytes("/workspace/no_such_file.bin")
+        """read_bytes on a non-existent path returns empty bytes."""
+        result = docker_sandbox.read_bytes("/workspace/no_such_file.bin")
         assert result == b""
+
+    @pytest.mark.docker
+    def test_exists_returns_true_for_existing_file(self, docker_sandbox):
+        """exists() returns True for a file written into the container."""
+        docker_sandbox.write("/workspace/exists_check.txt", "hi")
+        assert docker_sandbox.exists("/workspace/exists_check.txt") is True
+
+    @pytest.mark.docker
+    def test_exists_returns_false_for_missing_file(self, docker_sandbox):
+        """exists() returns False for an unwritten path inside the container."""
+        assert docker_sandbox.exists("/workspace/never_written.txt") is False
+
+    @pytest.mark.docker
+    def test_exists_returns_false_for_directory(self, docker_sandbox):
+        """exists() returns False for directories — ``test -f`` fails on dirs."""
+        # /workspace is the work_dir, guaranteed to be a directory.
+        assert docker_sandbox.exists("/workspace") is False
 
 
 class TestDockerSandboxNetworkMode:

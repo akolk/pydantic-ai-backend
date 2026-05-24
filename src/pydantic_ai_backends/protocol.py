@@ -35,6 +35,19 @@ class BackendProtocol(Protocol):
         ```
     """
 
+    def exists(self, path: str) -> bool:
+        """Check whether a file exists at the given path.
+
+        Args:
+            path: File path to check.
+
+        Returns:
+            True if the path resolves to an existing file, False otherwise.
+            Returns False for invalid paths, directories, and permission errors —
+            callers must use ls_info() to distinguish directories from missing paths.
+        """
+        ...
+
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files and directories at the given path.
 
@@ -46,7 +59,7 @@ class BackendProtocol(Protocol):
         """
         ...
 
-    def _read_bytes(self, path: str) -> bytes:
+    def read_bytes(self, path: str) -> bytes:
         """Read raw bytes from a file.
 
         Args:

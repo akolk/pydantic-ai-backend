@@ -125,6 +125,34 @@ class TestStateBackend:
         result = backend.write("~/secret", "hack")
         assert result.error is not None
 
+    def test_exists_returns_true_for_existing_file(self):
+        """exists() returns True for a file that was written."""
+        backend = StateBackend()
+        backend.write("/foo.txt", "content")
+        assert backend.exists("/foo.txt") is True
+
+    def test_exists_returns_false_for_missing_file(self):
+        """exists() returns False for a path with no stored file."""
+        backend = StateBackend()
+        assert backend.exists("/does-not-exist.txt") is False
+
+    def test_exists_returns_false_for_invalid_path(self):
+        """exists() returns False for paths that fail validation."""
+        backend = StateBackend()
+        assert backend.exists("../escape.txt") is False
+        assert backend.exists("~/secret") is False
+
+    def test_exists_distinguishes_empty_file_from_missing(self):
+        """An empty file exists; a missing one does not — even though both
+        round-trip through ``read_bytes`` as ``b""``."""
+        backend = StateBackend()
+        backend.write("/empty.txt", "")
+        assert backend.exists("/empty.txt") is True
+        assert backend.exists("/never-written.txt") is False
+        # read_bytes can't distinguish these — exists() is the point of this PR.
+        assert backend.read_bytes("/empty.txt") == b""
+        assert backend.read_bytes("/never-written.txt") == b""
+
     def test_write_bytes(self):
         """Test writing bytes to StateBackend."""
         backend = StateBackend()
@@ -149,30 +177,30 @@ class TestStateBackend:
 
         # Write text content
         backend.write("/text.txt", "Hello, World!")
-        data = backend._read_bytes("/text.txt")
+        data = backend.read_bytes("/text.txt")
         assert isinstance(data, bytes)
         assert data == b"Hello, World!"
 
         # Write valid UTF-8 bytes content (as text will round-trip correctly)
         backend.write("/valid_utf8.txt", "Hello 世界 🌍")
-        data = backend._read_bytes("/valid_utf8.txt")
+        data = backend.read_bytes("/valid_utf8.txt")
         assert isinstance(data, bytes)
         assert data == "Hello 世界 🌍".encode()
 
         # Test multiline content
         backend.write("/multi.txt", "Line 1\nLine 2\nLine 3")
-        data = backend._read_bytes("/multi.txt")
+        data = backend.read_bytes("/multi.txt")
         assert isinstance(data, bytes)
         assert data == b"Line 1\nLine 2\nLine 3"
 
         # Test non-existent file
-        data = backend._read_bytes("/nonexistent.txt")
+        data = backend.read_bytes("/nonexistent.txt")
         assert isinstance(data, bytes)
         assert data == b""
 
         # Test empty file
         backend.write("/empty.txt", "")
-        data = backend._read_bytes("/empty.txt")
+        data = backend.read_bytes("/empty.txt")
         assert isinstance(data, bytes)
         assert data == b""
 
@@ -294,36 +322,36 @@ class TestLocalBackend:
 
         # Write text content
         backend.write("text.txt", "Hello, World!")
-        data = backend._read_bytes("text.txt")
+        data = backend.read_bytes("text.txt")
         assert isinstance(data, bytes)
         assert data == b"Hello, World!"
 
         # Write binary content
         backend.write("binary.dat", b"\x00\x01\x02\xff\xfe")
-        data = backend._read_bytes("binary.dat")
+        data = backend.read_bytes("binary.dat")
         assert isinstance(data, bytes)
         assert data == b"\x00\x01\x02\xff\xfe"
 
         # Test multiline content
         backend.write("multi.txt", "Line 1\nLine 2\nLine 3")
-        data = backend._read_bytes("multi.txt")
+        data = backend.read_bytes("multi.txt")
         assert isinstance(data, bytes)
         assert data == b"Line 1\nLine 2\nLine 3"
 
         # Test non-existent file
-        data = backend._read_bytes("nonexistent.txt")
+        data = backend.read_bytes("nonexistent.txt")
         assert isinstance(data, bytes)
         assert data == b""
 
         # Test UTF-8 content
         backend.write("unicode.txt", "Hello 世界 🌍")
-        data = backend._read_bytes("unicode.txt")
+        data = backend.read_bytes("unicode.txt")
         assert isinstance(data, bytes)
         assert data == "Hello 世界 🌍".encode()
 
         # Test empty file
         backend.write("empty.txt", "")
-        data = backend._read_bytes("empty.txt")
+        data = backend.read_bytes("empty.txt")
         assert isinstance(data, bytes)
         assert data == b""
 
@@ -393,7 +421,7 @@ class TestLocalBackend:
         # Binary file with special name
         result = backend.write("data (binary) [v2].bin", b"\x00\x01\x02\x03")
         assert result.error is None
-        data = backend._read_bytes("data (binary) [v2].bin")
+        data = backend.read_bytes("data (binary) [v2].bin")
         assert data == b"\x00\x01\x02\x03"
 
     def test_execute(self, tmp_path):
@@ -412,6 +440,36 @@ class TestLocalBackend:
 
         with pytest.raises(RuntimeError, match="Shell execution is disabled"):
             backend.execute("echo 'test'")
+
+    def test_exists_returns_true_for_existing_file(self, tmp_path):
+        """exists() returns True after writing a file."""
+        backend = LocalBackend(root_dir=tmp_path)
+        backend.write("foo.txt", "content")
+        assert backend.exists("foo.txt") is True
+
+    def test_exists_returns_false_for_missing_file(self, tmp_path):
+        """exists() returns False for an unwritten path."""
+        backend = LocalBackend(root_dir=tmp_path)
+        assert backend.exists("does-not-exist.txt") is False
+
+    def test_exists_returns_false_for_invalid_path(self, tmp_path):
+        """exists() returns False for paths outside allowed directories."""
+        backend = LocalBackend(root_dir=tmp_path)
+        # Resolves outside root_dir → _validate_path raises PermissionError.
+        assert backend.exists("../escape.txt") is False
+
+    def test_exists_returns_false_for_directory(self, tmp_path):
+        """A directory is not a file — exists() returns False per the contract."""
+        backend = LocalBackend(root_dir=tmp_path)
+        (tmp_path / "subdir").mkdir()
+        assert backend.exists("subdir") is False
+
+    def test_exists_returns_false_for_null_byte_path(self, tmp_path):
+        """POSIX rejects paths with embedded NUL bytes — Path.is_file() raises
+        ValueError before stat'ing. The protocol contract is "invalid paths
+        return False", so this must not propagate."""
+        backend = LocalBackend(root_dir=tmp_path)
+        assert backend.exists("foo\x00bar.txt") is False
 
 
 class TestCompositeBackend:
@@ -472,24 +530,24 @@ class TestCompositeBackend:
 
         # Write to default backend
         composite.write("/default.txt", "default content")
-        data = composite._read_bytes("/default.txt")
+        data = composite.read_bytes("/default.txt")
         assert isinstance(data, bytes)
         assert data == b"default content"
 
         # Write to routed backend
         composite.write("/special/routed.txt", "routed content")
-        data = composite._read_bytes("/special/routed.txt")
+        data = composite.read_bytes("/special/routed.txt")
         assert isinstance(data, bytes)
         assert data == b"routed content"
 
         # Write UTF-8 text to routed backend
         composite.write("/special/unicode.txt", "Hello 世界")
-        data = composite._read_bytes("/special/unicode.txt")
+        data = composite.read_bytes("/special/unicode.txt")
         assert isinstance(data, bytes)
         assert data == "Hello 世界".encode()
 
         # Test non-existent file
-        data = composite._read_bytes("/nonexistent.txt")
+        data = composite.read_bytes("/nonexistent.txt")
         assert isinstance(data, bytes)
         assert data == b""
 
@@ -552,3 +610,36 @@ class TestCompositeBackend:
         edit_result = composite.edit("/special/file with spaces.txt", "routed", "updated")
         assert edit_result.error is None
         assert "updated backend" in composite.read("/special/file with spaces.txt")
+
+    def test_exists_routes_to_correct_backend(self):
+        """exists() consults the backend the path routes to, not the default."""
+        default_backend = StateBackend()
+        special_backend = StateBackend()
+        composite = CompositeBackend(
+            default=default_backend,
+            routes={"/special/": special_backend},
+        )
+
+        composite.write("/data.txt", "default")
+        composite.write("/special/cache.txt", "routed")
+
+        # True via default route
+        assert composite.exists("/data.txt") is True
+        # True via /special/ route
+        assert composite.exists("/special/cache.txt") is True
+        # False — file lives in special_backend, not default_backend
+        assert default_backend.exists("/special/cache.txt") is False
+
+    def test_exists_returns_false_for_missing_file(self):
+        """Missing paths return False regardless of which backend routes them."""
+        composite = CompositeBackend(
+            default=StateBackend(),
+            routes={"/special/": StateBackend()},
+        )
+        assert composite.exists("/missing.txt") is False
+        assert composite.exists("/special/missing.txt") is False
+
+    def test_exists_returns_false_for_invalid_path(self):
+        """Invalid paths return False (routed to a StateBackend which rejects them)."""
+        composite = CompositeBackend(default=StateBackend())
+        assert composite.exists("../escape.txt") is False

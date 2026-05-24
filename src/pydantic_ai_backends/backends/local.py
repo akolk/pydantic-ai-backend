@@ -220,6 +220,32 @@ class LocalBackend:
             f"Access denied: '{path}' is outside allowed directories ({allowed_str})"
         )
 
+    def exists(self, path: str) -> bool:
+        """Check whether a file exists on the filesystem.
+
+        Returns ``False`` for: missing files, directories, paths outside
+        the allowed directory set, and any other invalid path the
+        filesystem refuses to stat. The protocol contract is "invalid
+        paths, directories, and permission errors all return False" —
+        callers needing to distinguish those reasons should use
+        ``ls_info()``.
+
+        Exception sources:
+        - ``PermissionError`` from ``_validate_path`` when the resolved
+          path escapes the allowed directory set.
+        - ``ValueError`` from ``Path.is_file()`` on paths the OS rejects
+          before it can stat them (notably embedded null bytes — POSIX
+          rejects them at the syscall boundary).
+        - ``OSError`` covers the remaining edge cases (filename too long,
+          ELOOP on a symlink cycle, etc.). ``Path.is_file()`` swallows
+          most of these already; the explicit catch is belt-and-braces.
+        """
+        try:
+            validated = self._validate_path(path)
+            return validated.is_file()
+        except (PermissionError, ValueError, OSError):
+            return False
+
     def ls_info(self, path: str) -> list[FileInfo]:
         """List files and directories at the given path."""
         try:
@@ -261,7 +287,7 @@ class LocalBackend:
 
         return sorted(results, key=lambda x: (not x["is_dir"], x["name"]))
 
-    def _read_bytes(self, path: str) -> bytes:  # pragma: no cover
+    def read_bytes(self, path: str) -> bytes:  # pragma: no cover
         """Read raw bytes from a file."""
         try:
             full_path = self._validate_path(path)

@@ -339,7 +339,7 @@ class DockerSandbox(BaseSandbox):  # pragma: no cover
                 truncated=False,
             )
 
-    def _read_bytes(self, path: str) -> bytes:
+    def read_bytes(self, path: str) -> bytes:
         """Read raw bytes from file in container.
 
         Args:
@@ -392,7 +392,7 @@ class DockerSandbox(BaseSandbox):  # pragma: no cover
         path = self._resolve_path(path)
         try:
             # Read raw bytes from file
-            file_bytes = self._read_bytes(path)
+            file_bytes = self.read_bytes(path)
             if not file_bytes:
                 return f"Error: File '{original_path}' not found"
 
@@ -573,7 +573,7 @@ class DockerSandbox(BaseSandbox):  # pragma: no cover
         path = self._resolve_path(path)
         try:
             # Read the file content
-            file_bytes = self._read_bytes(path)
+            file_bytes = self.read_bytes(path)
 
             if not file_bytes:
                 return EditResult(error=f"File '{original_path}' not found")

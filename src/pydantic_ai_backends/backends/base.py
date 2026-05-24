@@ -144,6 +144,11 @@ class BaseSandbox(ABC):
         """
         ...
 
+    def exists(self, path: str) -> bool:  # pragma: no cover
+        """Check existence via ``test -f`` in the sandbox shell."""
+        result = self.execute(f"test -f {shlex.quote(path)}", timeout=5)
+        return result.exit_code == 0
+
     def ls_info(self, path: str) -> list[FileInfo]:  # pragma: no cover
         """List files using ls command."""
         path = shlex.quote(path)
@@ -179,7 +184,7 @@ class BaseSandbox(ABC):
 
         return sorted(entries, key=lambda x: (not x["is_dir"], x["name"]))
 
-    def _read_bytes(self, path: str) -> bytes:  # pragma: no cover
+    def read_bytes(self, path: str) -> bytes:  # pragma: no cover
         """Read raw bytes from file using cat command."""
         path = shlex.quote(path)
         result = self.execute(f"cat {path}")

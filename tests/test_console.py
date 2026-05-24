@@ -194,7 +194,7 @@ class TestReadFileImageSupport:
         img_path.write_bytes(png_data)
 
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("test.png")
+        result = backend.read_bytes("test.png")
         assert result == png_data
 
         # Verify the toolset is created with image_support
@@ -202,13 +202,13 @@ class TestReadFileImageSupport:
         assert "read_file" in toolset.tools
 
     def test_read_image_jpg_local_backend(self, tmp_path: Path):
-        """Test reading a JPG image returns bytes via _read_bytes."""
+        """Test reading a JPG image returns bytes via read_bytes."""
         jpg_data = b"\xff\xd8\xff\xe0" + b"\x00" * 50
         img_path = tmp_path / "photo.jpg"
         img_path.write_bytes(jpg_data)
 
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("photo.jpg")
+        result = backend.read_bytes("photo.jpg")
         assert result == jpg_data
 
     def test_read_image_jpeg_extension(self, tmp_path: Path):
@@ -218,7 +218,7 @@ class TestReadFileImageSupport:
         img_path.write_bytes(jpeg_data)
 
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("photo.jpeg")
+        result = backend.read_bytes("photo.jpeg")
         assert result == jpeg_data
 
     def test_read_image_gif_local_backend(self, tmp_path: Path):
@@ -228,7 +228,7 @@ class TestReadFileImageSupport:
         img_path.write_bytes(gif_data)
 
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("anim.gif")
+        result = backend.read_bytes("anim.gif")
         assert result == gif_data
 
     def test_read_image_webp_local_backend(self, tmp_path: Path):
@@ -238,13 +238,13 @@ class TestReadFileImageSupport:
         img_path.write_bytes(webp_data)
 
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("image.webp")
+        result = backend.read_bytes("image.webp")
         assert result == webp_data
 
     def test_read_image_not_found(self, tmp_path: Path):
         """Test reading nonexistent image returns empty bytes."""
         backend = LocalBackend(root_dir=tmp_path)
-        result = backend._read_bytes("nonexistent.png")
+        result = backend.read_bytes("nonexistent.png")
         assert result == b""
 
     def test_read_text_file_with_image_support(self, tmp_path: Path):
@@ -258,13 +258,13 @@ class TestReadFileImageSupport:
         assert "Hello, world!" in result
 
     def test_read_image_state_backend(self):
-        """Test reading image from StateBackend via _read_bytes."""
+        """Test reading image from StateBackend via read_bytes."""
         backend = StateBackend()
         png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         backend.write("/test.png", png_data)
 
-        result = backend._read_bytes("/test.png")
-        # StateBackend stores as text, so _read_bytes returns encoded text
+        result = backend.read_bytes("/test.png")
+        # StateBackend stores as text, so read_bytes returns encoded text
         assert isinstance(result, bytes)
 
     def test_image_extension_case_insensitive(self):

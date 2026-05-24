@@ -42,17 +42,32 @@ class FakeProcess:
 
 
 @dataclass
+class FakeFileInfo:
+    """Stub mirroring daytona-sdk's FileInfo."""
+
+    name: str = ""
+    is_dir: bool = False
+    size: int = 0
+
+
+@dataclass
 class FakeFs:
     """Stub for sandbox.fs."""
 
     _download_responses: list[FakeDownloadResponse] = field(default_factory=list)
     _uploaded: list[object] = field(default_factory=list)
+    _file_infos: dict[str, FakeFileInfo] = field(default_factory=dict)
 
     def download_files(self, requests: list[object]) -> list[FakeDownloadResponse]:
         return self._download_responses
 
     def upload_files(self, uploads: list[object]) -> None:
         self._uploaded.extend(uploads)
+
+    def get_file_info(self, path: str) -> FakeFileInfo:
+        if path not in self._file_infos:
+            raise FileNotFoundError(path)
+        return self._file_infos[path]
 
 
 @dataclass
@@ -228,7 +243,7 @@ class TestDaytonaSandboxReadBytes:
             FakeDownloadResponse(source="/test.txt", result="file content")
         ]
 
-        data = sandbox._read_bytes("/test.txt")
+        data = sandbox.read_bytes("/test.txt")
         assert data == b"file content"
 
     def test_read_bytes_binary(self) -> None:
@@ -237,15 +252,43 @@ class TestDaytonaSandboxReadBytes:
             FakeDownloadResponse(source="/img.bin", result=b"\x89PNG")
         ]
 
-        data = sandbox._read_bytes("/img.bin")
+        data = sandbox.read_bytes("/img.bin")
         assert data == b"\x89PNG"
 
     def test_read_bytes_error(self) -> None:
         sandbox = _make_sandbox()
         sandbox._sandbox.fs.download_files = MagicMock(side_effect=RuntimeError("download failed"))
 
-        data = sandbox._read_bytes("/missing.txt")
+        data = sandbox.read_bytes("/missing.txt")
         assert data.startswith(b"[Error:")
+
+
+class TestDaytonaSandboxExists:
+    def test_exists_returns_true_for_existing_file(self) -> None:
+        sandbox = _make_sandbox()
+        sandbox._sandbox.fs._file_infos = {
+            "/foo.txt": FakeFileInfo(name="foo.txt", is_dir=False, size=7)
+        }
+        assert sandbox.exists("/foo.txt") is True
+
+    def test_exists_returns_false_for_missing_file(self) -> None:
+        sandbox = _make_sandbox()
+        # Default _file_infos is empty → get_file_info raises FileNotFoundError.
+        assert sandbox.exists("/missing.txt") is False
+
+    def test_exists_returns_false_for_invalid_path(self) -> None:
+        """API failures (e.g. parent rejecting a bad path) are swallowed → False."""
+        sandbox = _make_sandbox()
+        sandbox._sandbox.fs.get_file_info = MagicMock(side_effect=ValueError("bad path"))
+        assert sandbox.exists("../escape.txt") is False
+
+    def test_exists_returns_false_for_directory(self) -> None:
+        """A directory is not a file — the contract returns False."""
+        sandbox = _make_sandbox()
+        sandbox._sandbox.fs._file_infos = {
+            "/home/daytona": FakeFileInfo(name="daytona", is_dir=True, size=0)
+        }
+        assert sandbox.exists("/home/daytona") is False
 
 
 class TestDaytonaSandboxWrite:

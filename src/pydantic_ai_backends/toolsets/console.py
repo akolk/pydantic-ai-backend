@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import weakref
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
@@ -283,6 +284,9 @@ def _is_denied_by_ruleset(
     return op_perms.default == "deny"
 
 
+_edit_locks: weakref.WeakKeyDictionary[Any, dict[str, asyncio.Lock]] = weakref.WeakKeyDictionary()
+
+
 def create_console_toolset(  # noqa: C901
     id: str | None = None,
     include_execute: bool = True,
@@ -427,7 +431,7 @@ def create_console_toolset(  # noqa: C901
             if image_support:
                 ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
                 if ext in IMAGE_EXTENSIONS:
-                    raw = await asyncio.to_thread(ctx.deps.backend._read_bytes, path)
+                    raw = await asyncio.to_thread(ctx.deps.backend.read_bytes, path)
                     if not raw:
                         return f"Error: Image file '{path}' not found or empty"
                     if len(raw) > max_image_bytes:
@@ -442,7 +446,7 @@ def create_console_toolset(  # noqa: C901
 
             from pydantic_ai_backends.hashline import format_hashline_output
 
-            raw_bytes = await asyncio.to_thread(ctx.deps.backend._read_bytes, path)
+            raw_bytes = await asyncio.to_thread(ctx.deps.backend.read_bytes, path)
             if not raw_bytes:
                 return f"Error: File '{path}' not found"
             text = raw_bytes.decode("utf-8", errors="replace")
@@ -467,7 +471,7 @@ def create_console_toolset(  # noqa: C901
             if image_support:
                 ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
                 if ext in IMAGE_EXTENSIONS:
-                    raw = await asyncio.to_thread(ctx.deps.backend._read_bytes, path)
+                    raw = await asyncio.to_thread(ctx.deps.backend.read_bytes, path)
                     if not raw:
                         return f"Error: Image file '{path}' not found or empty"
                     if len(raw) > max_image_bytes:
@@ -536,33 +540,38 @@ of replacing it.
             """
             from pydantic_ai_backends.hashline import apply_hashline_edit_with_summary
 
-            # Read current file content
-            raw_bytes = await asyncio.to_thread(ctx.deps.backend._read_bytes, path)
-            if not raw_bytes:
-                return f"Error: File '{path}' not found"
+            backend = ctx.deps.backend
+            per_path = _edit_locks.setdefault(backend, {})
+            if path not in per_path:
+                per_path[path] = asyncio.Lock()
+            async with per_path[path]:
+                # Read current file content
+                raw_bytes = await asyncio.to_thread(backend.read_bytes, path)
+                if not raw_bytes:
+                    return f"Error: File '{path}' not found"
 
-            text = raw_bytes.decode("utf-8", errors="replace")
+                text = raw_bytes.decode("utf-8", errors="replace")
 
-            # Apply edit
-            new_text, error, summary = apply_hashline_edit_with_summary(
-                text,
-                start_line,
-                start_hash,
-                new_content,
-                end_line,
-                end_hash,
-                insert_after,
-            )
+                # Apply edit
+                new_text, error, summary = apply_hashline_edit_with_summary(
+                    text,
+                    start_line,
+                    start_hash,
+                    new_content,
+                    end_line,
+                    end_hash,
+                    insert_after,
+                )
 
-            if error:
-                return f"Error: {error}"
+                if error:
+                    return f"Error: {error}"
 
-            # Write back
-            write_result = await asyncio.to_thread(ctx.deps.backend.write, path, new_text)
-            if write_result.error:
-                return f"Error: {write_result.error}"
+                # Write back
+                write_result = await asyncio.to_thread(backend.write, path, new_text)
+                if write_result.error:
+                    return f"Error: {write_result.error}"
 
-            return f"Edited {write_result.path}: {summary}"
+                return f"Edited {write_result.path}: {summary}"
 
     else:
 
