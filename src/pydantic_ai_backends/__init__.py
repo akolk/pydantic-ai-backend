@@ -62,6 +62,7 @@ from pydantic_ai_backends.types import (
 
 if TYPE_CHECKING:
     from pydantic_ai_backends.backends.daytona import DaytonaSandbox
+    from pydantic_ai_backends.backends.kubernetes import KubernetesSandbox
     from pydantic_ai_backends.backends.docker import (
         BUILTIN_RUNTIMES,
         BaseSandbox,
@@ -145,6 +146,8 @@ _LAZY_IMPORTS = {
     "DEFAULT_MAX_IMAGE_BYTES": "pydantic_ai_backends.toolsets.console",
     # Daytona sandbox (requires daytona extra)
     "DaytonaSandbox": "pydantic_ai_backends.backends.daytona",
+    # Kubernetes sandbox (requires kubernetes extra)
+    "KubernetesSandbox": "pydantic_ai_backends.backends.kubernetes",
     # Docker sandbox (requires docker extra)
     "DockerSandbox": "pydantic_ai_backends.backends.docker.sandbox",
     "BaseSandbox": "pydantic_ai_backends.backends.base",
@@ -229,6 +232,8 @@ __all__ = [
     "DEFAULT_MAX_IMAGE_BYTES",
     # Daytona sandbox (optional - requires daytona extra)
     "DaytonaSandbox",
+    # Kubernetes sandbox (optional - requires kubernetes extra)
+    "KubernetesSandbox",
     # Docker sandbox (optional - requires docker extra)
     "BaseSandbox",
     "DockerSandbox",
